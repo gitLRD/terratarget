@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+
+import subprocess
+import sys
+import re
+import glob
+
+def print_usage():
+    usage_text = """
+Usage: ./terragrunttarget [command] [options]
+
+Commands:
+  plan        Generate and show an execution plan
+  apply       Apply the changes required to reach the desired state of the configuration
+
+Options:
+  -target=    Target to include with a regex pattern. Can be used multiple times for multiple targets.
+  -except=    Target to exclude with a regex pattern. Can be used multiple times for multiple exclusions.
+  -auto-approve Automatically approve and apply proposed changes (only applicable to 'apply').
+
+Example:
+  ./terragrunttarget plan -target="google_dns_record_set.core-ilb-us.*" -except=".*test.*"
+
+Note: This script wraps terragrunt commands to support regex patterns in the -target option.
+"""
+    print(usage_text)
+
+def confirm_execution(command):
+    """
+    Prompt the user to confirm execution of the terragrunt command.
+    """
+    print("\nPlanned command:", " ".join(command))
+    print("\nDo you want to execute this command? [y/N]: ", end="")
+    choice = input().lower()
+    if choice not in ['y', 'yes']:
+        print("Execution aborted by the user.")
+        sys.exit(0)
+
+def run_terragrunt_command_with_targets(terragrunt_command, targets, excludes, other_args, auto_approve):
+    """
+    Execute the terragrunt command with resolved targets and other arguments.
+    """
+    command = ["terragrunt"] + terragrunt_command + other_args
+    if targets:
+        print("\nTargets selected for operation:")
+        for target in targets:
+            print(f"  - {target}")
+        if excludes:
+            print("\nExclusions applied:")
+            for exclude in excludes:
+                print(f"  - {exclude}")
+        if not auto_approve:
+            confirm_execution(command + [f"-target={target}" for target in targets if not any(re.search(ex, target) for ex in excludes)])
+    else:
+        print("\nWarning: No targets matched the wildcard patterns.", file=sys.stderr)
+        if not auto_approve:
+            confirm_execution(command)
+
+    filtered_targets = [target for target in targets if not any(re.search(ex, target) for ex in excludes)]
+    print("\nExecuting:", " ".join(command + [f"-target={target}" for target in filtered_targets]))
+    subprocess.run(command + [f"-target={target}" for target in filtered_targets])
+
+def find_matching_resources(pattern):
+    """
+    Find resources matching the pattern in the terragrunt state.
+    """
+    matching_resources = []
+    try:
+        result = subprocess.run(["terragrunt", "state", "list"], capture_output=True, text=True, check=True)
+        all_resources = result.stdout.splitlines()
+        for resource in all_resources:
+            if re.match(pattern, resource):
+                matching_resources.append(resource)
+    except subprocess.CalledProcessError as e:
+        print(f"Error listing terragrunt state: {e.stderr}", file=sys.stderr)
+        sys.exit(1)
+    return matching_resources
+
+def main():
+    if len(sys.argv) < 2:
+        print_usage()
+        sys.exit(1)
+
+    terragrunt_command = []
+    targets = []
+    excludes = []
+    other_args = []
+    auto_approve = False
+
+    for arg in sys.argv[1:]:
+        if arg.startswith('-target='):
+            pattern = arg.split('=', 1)[1]
+            targets.extend(find_matching_resources(pattern))
+        elif arg.startswith('-except='):
+            pattern = arg.split('=', 1)[1]
+            excludes.append(pattern)
+        elif arg == '-auto-approve':
+            auto_approve = True
+        elif arg in ['plan', 'apply']:
+            terragrunt_command.append(arg)
+        else:
+            other_args.append(arg)
+
+    if not terragrunt_command:
+        print("Error: No terragrunt command specified (plan or apply).")
+        print_usage()
+        sys.exit(1)
+
+    run_terragrunt_command_with_targets(terragrunt_command, targets, excludes, other_args, auto_approve)
+
+if __name__ == "__main__":
+    main()
+

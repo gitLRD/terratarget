@@ -7,7 +7,7 @@ import glob
 
 def print_usage():
     usage_text = """
-Usage: ./terratarget [command] [options]
+Usage: ./terraformtarget [command] [options]
 
 Commands:
   plan        Generate and show an execution plan
@@ -19,7 +19,7 @@ Options:
   -auto-approve Automatically approve and apply proposed changes (only applicable to 'apply').
 
 Example:
-  ./terratarget plan -target="google_dns_record_set.core-ilb-us.*" -except=".*test.*"
+  ./terraformtarget plan -target="google_dns_record_set.core-ilb-us.*" -except=".*test.*"
 
 Note: This script wraps Terraform commands to support regex patterns in the -target option.
 """
